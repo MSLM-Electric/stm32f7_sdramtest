@@ -9,6 +9,9 @@ buildvs
 TempRsrv
 TempRsrv2
 Release
+Drivers/CMSIS/DSP
+Drivers/CMSIS/RTOS2
+Drivers/CMSIS/NN
 !*.c
 !*.cpp
 !*.h
