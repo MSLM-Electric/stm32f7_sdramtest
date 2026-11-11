@@ -31,6 +31,23 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define SDRAM_BANK_ADDR                 ((uint32_t)0xC0000000)
+#define SDRAM_SIZE                      ((uint32_t)0x1000000)  // 16 MB
+
+// Parameters of MT48LC8M16A2
+#define SDRAM_MODEREG_BURST_LENGTH_1             ((uint16_t)0x0000)
+#define SDRAM_MODEREG_BURST_LENGTH_2             ((uint16_t)0x0001)
+#define SDRAM_MODEREG_BURST_LENGTH_4             ((uint16_t)0x0002)
+#define SDRAM_MODEREG_BURST_LENGTH_8             ((uint16_t)0x0003)
+#define SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      ((uint16_t)0x0000)
+#define SDRAM_MODEREG_BURST_TYPE_INTERLEAVED     ((uint16_t)0x0008)
+#define SDRAM_MODEREG_CAS_LATENCY_2              ((uint16_t)0x0020)
+#define SDRAM_MODEREG_CAS_LATENCY_3              ((uint16_t)0x0030)
+#define SDRAM_MODEREG_OPERATING_MODE_STANDARD    ((uint16_t)0x0000)
+#define SDRAM_MODEREG_WRITEBURST_MODE_PROGRAMMED ((uint16_t)0x0000)
+#define SDRAM_MODEREG_WRITEBURST_MODE_SINGLE     ((uint16_t)0x0200)
+
+#define SDRAM_TIMEOUT                   ((uint32_t)0x1000)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +67,8 @@ SDRAM_HandleTypeDef hsdram1;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_FMC_Init(void);
+static void MPU_Config(void);
+static HAL_StatusTypeDef SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *hsdram, uint32_t refresh_count);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -82,14 +101,16 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  //MPU_Config(); //why it worx even without MPU cfg? //?
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FMC_Init();
   /* USER CODE BEGIN 2 */
-
+  uint16_t *sdram = (uint16_t*)SDRAM_BANK_ADDR;
+  sdram[0] = 0x90AB/*CDEF*/;
+  uint32_t u = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -99,6 +120,22 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  // Remove then the osDelay from main proj. and return back HAL_Delay!!!
+	  HAL_Delay(1000);
+      sdram[0x11] = 0xBABE;
+      sdram[0x09] = 0xC0FE;
+      sdram[0x0A] = 0xBEEF;
+
+      sdram[2] = 0xAAAA;
+      sdram[3] = 0xBBBB;
+      sdram[4] = 0xCCCC;
+      HAL_Delay(1000);
+      sdram[0x10] = 0xF00D;
+      HAL_Delay(1000);
+      sdram[0x10] = 0xDEAD;
+      sdram[0x1000] = 0xCAFE;
+      sdram[0x80000] = 0xFACE;
+      sdram[0x81000] = 0x404E;
   }
   /* USER CODE END 3 */
 }
@@ -179,23 +216,23 @@ static void MX_FMC_Init(void)
   hsdram1.Instance = FMC_SDRAM_DEVICE;
   /* hsdram1.Init */
   hsdram1.Init.SDBank = FMC_SDRAM_BANK1;
-  hsdram1.Init.ColumnBitsNumber = FMC_SDRAM_COLUMN_BITS_NUM_8;
+  hsdram1.Init.ColumnBitsNumber = FMC_SDRAM_COLUMN_BITS_NUM_9;
   hsdram1.Init.RowBitsNumber = FMC_SDRAM_ROW_BITS_NUM_12;
   hsdram1.Init.MemoryDataWidth = FMC_SDRAM_MEM_BUS_WIDTH_16;
   hsdram1.Init.InternalBankNumber = FMC_SDRAM_INTERN_BANKS_NUM_4;
-  hsdram1.Init.CASLatency = FMC_SDRAM_CAS_LATENCY_1;
+  hsdram1.Init.CASLatency = FMC_SDRAM_CAS_LATENCY_3;
   hsdram1.Init.WriteProtection = FMC_SDRAM_WRITE_PROTECTION_DISABLE;
-  hsdram1.Init.SDClockPeriod = FMC_SDRAM_CLOCK_DISABLE;
+  hsdram1.Init.SDClockPeriod = FMC_SDRAM_CLOCK_PERIOD_3;
   hsdram1.Init.ReadBurst = FMC_SDRAM_RBURST_DISABLE;
   hsdram1.Init.ReadPipeDelay = FMC_SDRAM_RPIPE_DELAY_0;
   /* SdramTiming */
-  SdramTiming.LoadToActiveDelay = 16;
-  SdramTiming.ExitSelfRefreshDelay = 16;
-  SdramTiming.SelfRefreshTime = 16;
-  SdramTiming.RowCycleDelay = 16;
-  SdramTiming.WriteRecoveryTime = 16;
-  SdramTiming.RPDelay = 16;
-  SdramTiming.RCDDelay = 16;
+  SdramTiming.LoadToActiveDelay    = 2;    // tMRD
+  SdramTiming.ExitSelfRefreshDelay = 5;    // tXSR
+  SdramTiming.SelfRefreshTime      = 4;    // tRAS
+  SdramTiming.RowCycleDelay        = 5;    // tRC
+  SdramTiming.WriteRecoveryTime    = 2;    // tWR
+  SdramTiming.RPDelay              = 2;    // tRP
+  SdramTiming.RCDDelay             = 2;    // tRCD
 
   if (HAL_SDRAM_Init(&hsdram1, &SdramTiming) != HAL_OK)
   {
@@ -203,7 +240,12 @@ static void MX_FMC_Init(void)
   }
 
   /* USER CODE BEGIN FMC_Init 2 */
+  uint32_t refresh_count = 1105;
 
+  HAL_StatusTypeDef status = SDRAM_Initialization_Sequence(&hsdram1, refresh_count);
+  if(status != HAL_OK) {
+      return status;
+  }
   /* USER CODE END FMC_Init 2 */
 }
 
@@ -227,7 +269,125 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void MPU_Config(void)
+{
+    MPU_Region_InitTypeDef MPU_InitStruct;
 
+    /* Disable the MPU */
+    HAL_MPU_Disable();
+
+    /* Configure the MPU as Strongly ordered for not defined regions */
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.BaseAddress = 0x00;
+    MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+    MPU_InitStruct.SubRegionDisable = 0xC7; //0x87;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* Configure the MPU attributes as WB for SDRAM */
+    MPU_InitStruct.Enable           = MPU_REGION_ENABLE;
+    MPU_InitStruct.BaseAddress      = SDRAM_BANK_ADDR;      // 0xC0000000
+    MPU_InitStruct.Size             = MPU_REGION_SIZE_16MB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+    MPU_InitStruct.IsBufferable     = MPU_ACCESS_BUFFERABLE;
+    MPU_InitStruct.IsCacheable      = MPU_ACCESS_NOT_CACHEABLE;
+    MPU_InitStruct.IsShareable      = MPU_ACCESS_NOT_SHAREABLE;   // ← Strongly Ordered
+    MPU_InitStruct.Number           = MPU_REGION_NUMBER1;
+    MPU_InitStruct.TypeExtField     = MPU_TEX_LEVEL2;//MPU_TEX_LEVEL0;         // TEX=0, C=0, B=0, S=1 → Strongly Ordered
+    MPU_InitStruct.SubRegionDisable = 0x00;
+    MPU_InitStruct.DisableExec      = MPU_INSTRUCTION_ACCESS_DISABLE; // XN
+
+    //MPU_InitStruct.IsBufferable = ((gotCfg & IsBufferable) >> BitPos(IsBufferable));
+    //MPU_InitStruct.IsCacheable =  ((gotCfg & IsCacheable) >> BitPos(IsCacheable));
+    //MPU_InitStruct.IsShareable =  ((gotCfg & IsShareable) >> BitPos(IsShareable));
+    ////MPU_InitStruct.Number =  ((gotCfg & RegionNumber) >> BitPos(BIT(4)));
+    ////MPU_InitStruct.TypeExtField =  (u8)((gotCfg & TexLevelX) >> BitPos((BIT(7))));
+    //MPU_InitStruct.TypeExtField =  (u8)((gotCfg & TexLevelX) >> BitPos((BIT(4))));
+    //MPU_InitStruct.DisableExec =  ((gotCfg & DisExec) >> BitPos(DisExec));
+
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* Configure the MPU attributes FMC control registers */
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.BaseAddress = 0xA0000000;
+    MPU_InitStruct.Size = MPU_REGION_SIZE_8KB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+    MPU_InitStruct.SubRegionDisable = 0x0;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+    /* Enable the MPU */
+    HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+}
+
+static HAL_StatusTypeDef SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *hsdram, uint32_t refresh_count) {
+    FMC_SDRAM_CommandTypeDef Command;
+    HAL_StatusTypeDef status;
+
+    // --- STEP 1: Clock Configuration Enable ---
+    Command.CommandMode = FMC_SDRAM_CMD_CLK_ENABLE;
+    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
+    Command.AutoRefreshNumber = 1;
+    Command.ModeRegisterDefinition = 0;
+
+    status = HAL_SDRAM_SendCommand(hsdram, &Command, SDRAM_TIMEOUT);
+    if(status != HAL_OK) return status;
+
+    HAL_Delay(1);
+
+    // --- STEP 2: Precharge All ---
+    Command.CommandMode = FMC_SDRAM_CMD_PALL;
+    status = HAL_SDRAM_SendCommand(hsdram, &Command, SDRAM_TIMEOUT);
+    if(status != HAL_OK) return status;
+
+    // --- STEP 3: 8 cycles Auto Refresh ---
+    Command.CommandMode = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
+    Command.AutoRefreshNumber = 8; // JEDEC requires minimum 8 cycles
+
+    status = HAL_SDRAM_SendCommand(hsdram, &Command, SDRAM_TIMEOUT);
+    if(status != HAL_OK) return status;
+
+    // --- STEP 4: Load Mode Register ---
+    Command.CommandMode = FMC_SDRAM_CMD_LOAD_MODE;
+    Command.AutoRefreshNumber = 1;
+
+    // Seetting Mode Register 100 MHz:
+    // - Burst Length = 1
+    // - Burst Type = Sequential
+    // - CAS Latency = 2
+    // - Operating Mode = Standard
+    // - Write Burst Mode = Single
+    uint32_t mode_reg = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_1 |
+                       SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL |
+                       SDRAM_MODEREG_CAS_LATENCY_2 |
+                       SDRAM_MODEREG_OPERATING_MODE_STANDARD |
+                       SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
+
+    Command.ModeRegisterDefinition = mode_reg;
+
+    status = HAL_SDRAM_SendCommand(hsdram, &Command, SDRAM_TIMEOUT);
+    if(status != HAL_OK) return status;
+
+    HAL_Delay(1); //?
+
+    // --- STEP 5: Seetting Refresh Timer ---
+     HAL_SDRAM_ProgramRefreshRate(hsdram, refresh_count);
+
+    return HAL_OK;
+}
 /* USER CODE END 4 */
 
 /**

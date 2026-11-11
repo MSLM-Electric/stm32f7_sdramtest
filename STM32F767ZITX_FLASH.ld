@@ -40,12 +40,15 @@ _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 
 _Min_Heap_Size = 0x200; /* required amount of heap */
 _Min_Stack_Size = 0x400; /* required amount of stack */
+_fmc_ram_start_address = 0xC0000000;
+_fmc_ram_size = 16 * 1024 * 1024;
 
 /* Memories definition */
 MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 512K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2048K
+  FMC_RAM (xrw)  : ORIGIN = _fmc_ram_start_address, LENGTH = _fmc_ram_size
 }
 
 /* Sections */
