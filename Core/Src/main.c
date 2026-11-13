@@ -101,7 +101,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  //MPU_Config(); //why it worx even without MPU cfg? //?
+  //MPU_Config();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -120,7 +120,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  // Remove then the osDelay from main proj. and return back HAL_Delay!!!
 	  HAL_Delay(1000);
       sdram[0x11] = 0xBABE;
       sdram[0x09] = 0xC0FE;
